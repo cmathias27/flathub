@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>À supprimer — Médiathèque</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-left">
+    <a href="index.html" class="logo">
+      <svg class="logo-icon" viewBox="0 0 90 20"><rect width="90" height="20" rx="4" fill="#FF0000"/><path d="M36 6l10 4-10 4V6z" fill="#fff"/></svg>
+      <span>Médiathèque</span>
+    </a>
+  </div>
+  <div class="topbar-right">
+    <a class="topbar-link" href="index.html">Retour à la bibliothèque</a>
+  </div>
+</header>
+
+<main class="delete-page">
+  <section class="delete-hero">
+    <div>
+      <p class="eyebrow">Nettoyage de la médiathèque</p>
+      <h1>Vidéos à supprimer</h1>
+      <p>Cette page rassemble les vidéos dont la note moyenne est <strong>strictement inférieure à 3 étoiles</strong>. Les vidéos sans note ne sont pas concernées.</p>
+    </div>
+    <div class="delete-warning"><strong>⚠ Suppression définitive</strong><span>Les fichiers sélectionnés seront supprimés de leur dossier source (<code>/media/library</code> ou <code>/media/video</code>).</span></div>
+  </section>
+
+  <section class="delete-toolbar">
+    <label class="select-all"><input type="checkbox" id="selectAll"> <span>Tout sélectionner</span></label>
+    <span id="selectionCount" class="selection-count">0 sélectionnée</span>
+    <button id="refreshBtn" class="player-nav-btn">Actualiser</button>
+    <button id="deleteSelectedBtn" class="danger-btn" disabled>Supprimer la sélection</button>
+  </section>
+
+  <div id="deleteLoading" class="loading-state"><div class="spinner"></div><p>Analyse des notes…</p></div>
+  <div id="deleteEmpty" class="empty-state" hidden>
+    <h2>Aucune vidéo à supprimer 🎉</h2>
+    <p>Aucune vidéo notée sous 3 étoiles pour le moment.</p>
+  </div>
+  <section id="deleteGrid" class="delete-grid"></section>
+</main>
+
+<div id="confirmModal" class="confirm-modal" hidden>
+  <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <button id="closeConfirm" class="modal-close" aria-label="Fermer">×</button>
+    <p class="eyebrow">Dernière vérification</p>
+    <h2 id="confirmTitle">Supprimer ces vidéos ?</h2>
+    <p id="confirmText"></p>
+    <div class="confirm-actions">
+      <button id="cancelDelete" class="player-nav-btn">Annuler</button>
+      <button id="confirmDelete" class="danger-btn">Supprimer définitivement</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const state = { videos: [], selected: new Set(), pendingIds: [] };
+  const $ = id => document.getElementById(id);
+  const grid = $('deleteGrid'), loading = $('deleteLoading'), empty = $('deleteEmpty');
+
+  function escapeHtml(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
+  function renderStars(avg) { return [1,2,3,4,5].map(n => `<span class="static-star${n <= Math.round(avg) ? ' is-filled' : ''}">★</span>`).join(''); }
+
+  function card(v) {
+    const checked = state.selected.has(v.id) ? ' checked' : '';
+    return `<article class="delete-card" data-id="${v.id}">
+      <label class="delete-check"><input type="checkbox" class="video-check" data-id="${v.id}"${checked}><span>Sélectionner</span></label>
+      <div class="delete-thumb-wrap"><video class="delete-preview" controls preload="metadata" poster="${v.thumb_url}"><source src="${v.stream_url}"></video></div>
+      <div class="delete-card-body">
+        <h2 title="${escapeHtml(v.title)}">${escapeHtml(v.title)}</h2>
+        <div class="delete-rating">${renderStars(v.rating.average)} <strong>${Number(v.rating.average).toFixed(1)}/5</strong> <span>(${v.rating.count} vote${v.rating.count > 1 ? 's' : ''})</span></div>
+        <p>${escapeHtml(v.filename)} · ${escapeHtml(v.size_h)} · ${escapeHtml(v.duration_h)} · <strong>${escapeHtml(v.source_label || '')}</strong></p>
+        <button class="danger-outline delete-one" data-id="${v.id}">Supprimer cette vidéo</button>
+      </div>
+    </article>`;
+  }
+
+  function updateSelectionUI() {
+    const n = state.selected.size;
+    $('selectionCount').textContent = `${n} sélectionnée${n > 1 ? 's' : ''}`;
+    $('deleteSelectedBtn').disabled = n === 0;
+    $('selectAll').checked = state.videos.length > 0 && n === state.videos.length;
+    $('selectAll').indeterminate = n > 0 && n < state.videos.length;
+  }
+
+  function render() {
+    grid.innerHTML = state.videos.map(card).join('');
+    grid.hidden = state.videos.length === 0;
+    empty.hidden = state.videos.length !== 0;
+    updateSelectionUI();
+  }
+
+  async function load() {
+    loading.hidden = false;
+    try {
+      const res = await fetch('api/deletions.php', { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur');
+      state.videos = data.videos || [];
+      state.selected = new Set([...state.selected].filter(id => state.videos.some(v => v.id === id)));
+      render();
+    } catch (e) {
+      grid.innerHTML = `<div class="empty-state"><h2>Impossible de charger la liste</h2><p>${escapeHtml(e.message)}</p></div>`;
+    } finally { loading.hidden = true; }
+  }
+
+  function askDelete(ids) {
+    const unique = [...new Set(ids)].filter(id => state.videos.some(v => v.id === id));
+    if (!unique.length) return;
+    state.pendingIds = unique;
+    const total = unique.length;
+    $('confirmText').textContent = `Tu es sur le point de supprimer définitivement ${total} vidéo${total > 1 ? 's' : ''}. Cette action supprimera les fichiers du disque et ne peut pas être annulée.`;
+    $('confirmModal').hidden = false;
+  }
+
+  async function doDelete() {
+    const ids = state.pendingIds;
+    $('confirmModal').hidden = true;
+    $('confirmDelete').disabled = true;
+    try {
+      const res = await fetch('api/deletions.php', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+      const data = await res.json();
+      if (!res.ok && !data.deleted?.length) throw new Error(data.errors?.join('\n') || data.error || 'Suppression impossible');
+      const deletedIds = new Set((data.deleted || []).map(x => x.id));
+      state.selected.forEach(id => { if (deletedIds.has(id)) state.selected.delete(id); });
+      if (data.errors?.length) alert(`Certaines vidéos n’ont pas été supprimées :\n\n${data.errors.join('\n')}`);
+      await load();
+    } catch (e) { alert(e.message); }
+    finally { $('confirmDelete').disabled = false; state.pendingIds = []; }
+  }
+
+  $('selectAll').addEventListener('change', e => {
+    if (e.target.checked) state.videos.forEach(v => state.selected.add(v.id));
+    else state.selected.clear();
+    document.querySelectorAll('.video-check').forEach(c => c.checked = state.selected.has(c.dataset.id));
+    updateSelectionUI();
+  });
+  grid.addEventListener('change', e => {
+    const cb = e.target.closest('.video-check'); if (!cb) return;
+    if (cb.checked) state.selected.add(cb.dataset.id); else state.selected.delete(cb.dataset.id);
+    updateSelectionUI();
+  });
+  grid.addEventListener('click', e => { const b = e.target.closest('.delete-one'); if (b) askDelete([b.dataset.id]); });
+  $('deleteSelectedBtn').addEventListener('click', () => askDelete([...state.selected]));
+  $('refreshBtn').addEventListener('click', load);
+  $('confirmDelete').addEventListener('click', doDelete);
+  $('cancelDelete').addEventListener('click', () => $('confirmModal').hidden = true);
+  $('closeConfirm').addEventListener('click', () => $('confirmModal').hidden = true);
+  $('confirmModal').addEventListener('click', e => { if (e.target === $('confirmModal')) $('confirmModal').hidden = true; });
+  load();
+})();
+</script>
+</body>
+</html>
