@@ -46,8 +46,8 @@ function deletion_candidates(): array {
                 'sum' => $sum,
                 'average' => round($average, 1),
             ];
-            $video['thumb_url'] = 'thumb.php?id=' . urlencode($video['id']);
-            $video['stream_url'] = 'stream.php?id=' . urlencode($video['id']);
+            $video['thumb_url'] = 'api/thumb.php?id=' . urlencode($video['id']);
+            $video['stream_url'] = 'api/stream.php?id=' . urlencode($video['id']);
             $out[] = $video;
         }
     }
