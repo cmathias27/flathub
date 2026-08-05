@@ -25,7 +25,8 @@ lib/videos.php        Scan du dossier (lecture seule), métadonnées, tri
 api/videos.php        Endpoint JSON : liste des vidéos triées par date desc
 api/thumb.php          Génère/sert une miniature (cache dans cache/thumbs/)
 api/stream.php          Sert la vidéo en streaming avec support Range (seek)
-cache/thumbs/         Cache des miniatures + durées (généré automatiquement)
+cache/thumbs/         Cache des miniatures + durées + index vidéo (généré automatiquement)
+data/tags.json        Tags persistants associés aux IDs des vidéos
 ```
 
 ## Fonctionnement
@@ -47,3 +48,7 @@ La page `delete.html` permet de préparer la suppression des vidéos dont la not
 - L'API `api/deletions.php` refait la vérification du rating côté serveur avant de supprimer le fichier.
 - La suppression est définitive dans `/media/library`.
 - Les caches associés et la note de la vidéo supprimée sont également nettoyés.
+
+## Tags persistants
+
+Les tags sont stockés dans `data/tags.json`, avec l'ID de chaque vidéo comme clé. Lorsqu'une vidéo apparaît pour la première fois, les tags entre parenthèses de son nom de fichier sont extraits et enregistrés. Les tags déjà présents dans `tags.json` sont ensuite conservés, même si le nom du fichier change. Les entrées des vidéos qui ne sont plus présentes dans la bibliothèque sont nettoyées lors du prochain scan.

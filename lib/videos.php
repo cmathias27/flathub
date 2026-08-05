@@ -51,6 +51,9 @@ function build_file_index(): array
                 'id'          => $id,
                 'title'       => clean_title($fileInfo->getFilename()),
                 'filename'    => $fileInfo->getFilename(),
+                // Les tags sont persistés dans data/tags.json. À la première
+                // détection d'une vidéo, on les initialise depuis le nom du fichier.
+                'tags'        => extract_tags($fileInfo->getFilename()),
                 'relpath'     => $relativePath,
                 'source_key'  => $source['key'],
                 'source_label'=> $source['label'],
@@ -65,7 +68,95 @@ function build_file_index(): array
         }
     }
 
+    // Synchronise les tags persistés après le scan : les tags existants
+    // sont conservés (ce qui permet de les modifier manuellement plus tard),
+    // et les nouvelles vidéos sont initialisées depuis leur nom de fichier.
+    $storedTags = sync_video_tags($videos);
+    foreach ($videos as $id => &$video) {
+        if (array_key_exists($id, $storedTags)) {
+            $video['tags'] = $storedTags[$id];
+        }
+    }
+    unset($video);
+
     return $videos;
+}
+
+/**
+ * Lit data/tags.json. Le format est :
+ * {
+ *   "video-id": ["Tag 1", "Tag 2"]
+ * }
+ */
+function load_tags_store(): array
+{
+    if (!is_dir(RATINGS_DIR)) {
+        @mkdir(RATINGS_DIR, 0775, true);
+    }
+
+    if (!is_file(TAGS_FILE)) {
+        return [];
+    }
+
+    $data = json_decode((string) @file_get_contents(TAGS_FILE), true);
+    return is_array($data) ? $data : [];
+}
+
+/**
+ * Nettoie une liste de tags avant persistance.
+ */
+function normalize_tag_list(array $tags): array
+{
+    $result = [];
+    $seen = [];
+
+    foreach ($tags as $rawTag) {
+        if (!is_string($rawTag)) continue;
+        $tag = trim(preg_replace('/\s+/u', ' ', $rawTag));
+        if ($tag === '') continue;
+
+        $key = function_exists('mb_strtolower')
+            ? mb_strtolower($tag, 'UTF-8')
+            : strtolower($tag);
+
+        if (isset($seen[$key])) continue;
+        $seen[$key] = true;
+        $result[] = $tag;
+    }
+
+    return $result;
+}
+
+/**
+ * Persiste les tags associés aux vidéos.
+ * Les anciennes entrées correspondant à des vidéos disparues/renommées sont
+ * retirées afin d'éviter que tags.json ne grossisse indéfiniment.
+ */
+function sync_video_tags(array $videos): array
+{
+    $stored = load_tags_store();
+    $next = [];
+
+    foreach ($videos as $id => $video) {
+        if (isset($stored[$id]) && is_array($stored[$id])) {
+            $next[$id] = normalize_tag_list($stored[$id]);
+        } else {
+            $next[$id] = extract_tags($video['filename'] ?? '');
+        }
+    }
+
+    if ($next !== $stored) {
+        if (!is_dir(RATINGS_DIR)) {
+            @mkdir(RATINGS_DIR, 0775, true);
+        }
+        @file_put_contents(
+            TAGS_FILE,
+            json_encode($next, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
+            LOCK_EX
+        );
+    }
+
+    return $next;
 }
 
 function video_file_path(array $video): ?string
@@ -142,6 +233,45 @@ function find_video_by_id(string $id): ?array
 {
     $index = get_index();
     return $index[$id] ?? null;
+}
+
+/**
+ * Extrait les tags écrits entre parenthèses dans le nom du fichier.
+ *
+ * Exemple :
+ * () (StudioTitle) - The Scene Title - (Vanessa Alessia) - (Michael Fly) - ()
+ * => ["StudioTitle", "Vanessa Alessia", "Michael Fly"]
+ *
+ * Les parenthèses vides sont ignorées et les doublons sont supprimés
+ * (insensible à la casse) en conservant la première écriture rencontrée.
+ */
+function extract_tags(string $filename): array
+{
+    $name = preg_replace('/\\.[^.]+$/u', '', $filename);
+    preg_match_all('/\\(([^()]*)\\)/u', $name, $matches);
+
+    $tags = [];
+    $seen = [];
+
+    foreach ($matches[1] ?? [] as $rawTag) {
+        $tag = trim(preg_replace('/\\s+/u', ' ', $rawTag));
+        if ($tag === '') {
+            continue;
+        }
+
+        $key = function_exists('mb_strtolower')
+            ? mb_strtolower($tag, 'UTF-8')
+            : strtolower($tag);
+
+        if (isset($seen[$key])) {
+            continue;
+        }
+
+        $seen[$key] = true;
+        $tags[] = $tag;
+    }
+
+    return $tags;
 }
 
 /**

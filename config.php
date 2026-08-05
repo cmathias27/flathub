@@ -17,6 +17,7 @@ define('VIDEO_SOURCES', [
 define('CACHE_DIR', __DIR__ . '/cache/thumbs');
 define('RATINGS_DIR', __DIR__ . '/data');
 define('RATINGS_FILE', RATINGS_DIR . '/ratings.json');
+define('TAGS_FILE', RATINGS_DIR . '/tags.json');
 define('VIDEO_EXTENSIONS', ['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v']);
 define('FFMPEG_BIN', 'ffmpeg');
 define('FFPROBE_BIN', 'ffprobe');

@@ -10,13 +10,14 @@
     historyIndex: -1,
     shuffle: false,
     discover: false,
+    activeTag: null,
   };
 
   const el = {
     grid: document.getElementById('videoGrid'), empty: document.getElementById('emptyState'), loading: document.getElementById('loadingState'),
     gridView: document.getElementById('gridView'), playerView: document.getElementById('playerView'), search: document.getElementById('searchInput'), sort: document.getElementById('sortSelect'),
     backBtn: document.getElementById('backBtn'), logoLink: document.getElementById('logoLink'), mainVideo: document.getElementById('mainVideo'), playerTitle: document.getElementById('playerTitle'),
-    playerDate: document.getElementById('playerDate'), playerSize: document.getElementById('playerSize'), playerDuration: document.getElementById('playerDuration'), playerRating: document.getElementById('playerRating'), upNextList: document.getElementById('upNextList'),
+    playerDate: document.getElementById('playerDate'), playerSize: document.getElementById('playerSize'), playerDuration: document.getElementById('playerDuration'), playerRating: document.getElementById('playerRating'), playerTags: document.getElementById('playerTags'), upNextList: document.getElementById('upNextList'),
     previousBtn: document.getElementById('previousBtn'), shuffleBtn: document.getElementById('shuffleBtn'), discoverBtn: document.getElementById('discoverBtn'), nextBtn: document.getElementById('nextBtn'),
     menuBtn: document.getElementById('menuBtn'),
   };
@@ -31,6 +32,44 @@
     return `<div class="rating${compact ? ' rating-compact' : ''}" data-rating-widget="${v.id}" title="${r.count ? `${avg}/5 (${r.count} vote${r.count > 1 ? 's' : ''})` : 'Pas encore notée'}">${stars}<span class="rating-value">${r.count ? avg.toFixed(1) : '—'}</span>${r.count ? `<span class="rating-count">(${r.count})</span>` : ''}</div>`;
   }
 
+  function normalizeTag(tag) {
+    return String(tag || '').trim().toLocaleLowerCase();
+  }
+
+  function renderPlayerTags(v) {
+    const tags = Array.isArray(v.tags) ? v.tags : [];
+    el.playerTags.innerHTML = tags.length
+      ? tags.map(tag => `<button type="button" class="tag-chip" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join('')
+      : '<span class="tags-empty">Aucun tag détecté dans le nom du fichier.</span>';
+  }
+
+  function renderActiveTag() {
+    let bar = document.getElementById('activeTagBar');
+    if (!state.activeTag) {
+      if (bar) bar.remove();
+      return;
+    }
+
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'activeTagBar';
+      bar.className = 'active-tag-bar';
+      el.grid.parentNode.insertBefore(bar, el.grid);
+    }
+
+    bar.innerHTML = `<span>Tag sélectionné :</span> <strong>${escapeHtml(state.activeTag)}</strong><button type="button" class="clear-tag-btn" id="clearTagBtn">Effacer</button>`;
+  }
+
+  function filterByTag(tag) {
+    const clean = String(tag || '').trim();
+    if (!clean) return;
+    state.activeTag = clean;
+    applySortAndFilter();
+    closePlayer();
+    renderActiveTag();
+    window.scrollTo({top:0, behavior:'instant'});
+  }
+
   function cardTemplate(v) {
     return `<div class="video-card" data-id="${v.id}"><div class="thumb-wrap" data-stream="${v.stream_url}"><img class="thumb-img" src="${v.thumb_url}" alt="" loading="lazy"><video class="thumb-preview" muted loop playsinline preload="none"></video><span class="duration-badge">${v.duration_h}</span></div><div class="card-info"><div class="card-avatar">${initial(v.title)}</div><div class="card-text"><p class="card-title" title="${escapeHtml(v.title)}">${escapeHtml(v.title)}</p><div class="card-meta">${v.date_rel} · ${v.size_h} · <span class="source-badge">${escapeHtml(v.source_label || '')}</span></div>${ratingTemplate(v, true)}</div></div></div>`;
   }
@@ -43,6 +82,10 @@
     let list = [...state.videos];
     const q = state.query.trim().toLowerCase();
     if (q) list = list.filter(v => v.title.toLowerCase().includes(q));
+    if (state.activeTag) {
+      const targetTag = normalizeTag(state.activeTag);
+      list = list.filter(v => Array.isArray(v.tags) && v.tags.some(tag => normalizeTag(tag) === targetTag));
+    }
     const rating = v => Number(getRating(v.id).average || 0);
     const votes = v => Number(getRating(v.id).count || 0);
     switch (state.sort) {
@@ -96,7 +139,7 @@
       }
     }
     state.currentId=id;
-    el.mainVideo.src=video.stream_url; el.playerTitle.textContent=video.title; el.playerDate.textContent=video.date_h; el.playerSize.textContent=video.size_h; el.playerDuration.textContent=video.duration_h; renderPlayerRating(video);
+    el.mainVideo.src=video.stream_url; el.playerTitle.textContent=video.title; el.playerDate.textContent=video.date_h; el.playerSize.textContent=video.size_h; el.playerDuration.textContent=video.duration_h; renderPlayerRating(video); renderPlayerTags(video);
     const others=state.videos.filter(v=>v.id!==id).sort((a,b)=>b.mtime-a.mtime); el.upNextList.innerHTML=others.map(v=>upNextTemplate(v,false)).join(''); attachHoverPreviews(el.upNextList,'.up-next-thumb');
     el.gridView.hidden=true; el.playerView.hidden=false; updateNavigationButtons(); window.scrollTo({top:0,behavior:'instant'}); el.mainVideo.play().catch(()=>{});
   }
@@ -164,6 +207,8 @@
   el.grid.addEventListener('click',e=>{const star=e.target.closest('.rating-star'); if(star){e.stopPropagation();rateVideo(star.dataset.id,Number(star.dataset.rating));return;} const card=e.target.closest('.video-card');if(card)openPlayer(card.dataset.id);});
   el.upNextList.addEventListener('click',e=>{const item=e.target.closest('.up-next-item');if(item)openPlayer(item.dataset.id);});
   el.playerRating.addEventListener('click',e=>{const star=e.target.closest('.rating-star');if(star){e.stopPropagation();rateVideo(star.dataset.id,Number(star.dataset.rating));}});
+  el.playerTags.addEventListener('click',e=>{const tag=e.target.closest('.tag-chip');if(tag){filterByTag(tag.dataset.tag);}});
+  el.gridView.addEventListener('click',e=>{if(e.target.closest('#clearTagBtn')){state.activeTag=null;applySortAndFilter();renderActiveTag();}});
   el.search.addEventListener('input',e=>{state.query=e.target.value;applySortAndFilter();});
   el.sort.addEventListener('change',e=>{state.sort=e.target.value;applySortAndFilter();});
   el.backBtn.addEventListener('click',closePlayer); el.logoLink.addEventListener('click',e=>{e.preventDefault();closePlayer();});
