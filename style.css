@@ -571,3 +571,47 @@ button { font-family: inherit; cursor: pointer; }
   .delete-warning { min-width: 0; width: 100%; }
   .delete-page { padding: 20px 14px 56px; }
 }
+
+
+/* ---------- Gestion des suggestions de tags ---------- */
+.tags-page { max-width: 1500px; margin: 0 auto; padding: 32px 24px 72px; }
+.tags-hero { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; margin-bottom:24px; flex-wrap:wrap; }
+.tags-hero h1 { margin:4px 0 8px; font-size:30px; }
+.tags-hero p:not(.eyebrow) { color:var(--text-secondary); line-height:1.55; max-width:800px; margin:0; }
+.tag-eyebrow { color:var(--accent) !important; }
+.tags-summary { padding:10px 14px; border:1px solid var(--border); border-radius:999px; background:var(--bg-elevated); color:var(--text-secondary); font-size:13px; white-space:nowrap; }
+.suggestions-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:18px; }
+.suggestion-card { border:1px solid var(--border); border-radius:12px; background:#171717; overflow:hidden; }
+.suggestion-card-body { padding:18px; }
+.suggestion-filename { margin:0; font-size:15px; line-height:1.45; font-weight:600; word-break:break-word; }
+.suggestion-date { color:var(--text-secondary); font-size:12px; margin:7px 0 14px; }
+.suggestion-tags { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:18px; }
+.suggestion-chip, .editor-tag { display:inline-flex; align-items:center; gap:5px; padding:6px 9px; border-radius:999px; background:#2a2a2a; border:1px solid #414141; font-size:12px; }
+.suggestion-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.primary-btn, .secondary-btn, .danger-outline-small { border-radius:8px; padding:9px 12px; font-size:13px; font-weight:600; cursor:pointer; }
+.primary-btn { border:1px solid #c00000; background:#d40000; color:#fff; }
+.primary-btn:hover { background:#f00000; }
+.secondary-btn { border:1px solid var(--border); background:var(--bg-elevated); color:var(--text); }
+.secondary-btn:hover { background:var(--bg-hover); }
+.danger-outline-small { border:1px solid #6b3030; background:transparent; color:#ff9292; }
+.danger-outline-small:hover { background:#2b1515; color:#fff; }
+.tag-modal { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(0,0,0,.75); }
+.tag-modal[hidden] { display:none; }
+.tag-dialog { position:relative; width:min(620px,100%); max-height:min(760px,90vh); overflow:auto; padding:26px; border:1px solid var(--border); border-radius:14px; background:#181818; box-shadow:0 24px 80px rgba(0,0,0,.5); }
+.tag-dialog h2 { margin:5px 0 8px; font-size:21px; }
+.tag-modal-filename { margin:0 0 20px; color:var(--text-secondary); font-size:13px; line-height:1.45; word-break:break-word; }
+.tag-editor-list { display:flex; flex-wrap:wrap; gap:8px; min-height:44px; margin-bottom:16px; }
+.editor-tag button { border:0; background:transparent; color:var(--text-secondary); padding:0 2px; font-size:17px; line-height:1; cursor:pointer; }
+.editor-tag button:hover { color:#fff; }
+.editor-empty { color:#777; font-size:13px; padding:8px 0; }
+.tag-add-row { display:flex; gap:8px; }
+.tag-add-row input { flex:1; min-width:0; border:1px solid var(--border); border-radius:8px; background:#111; color:var(--text); padding:10px 12px; outline:none; }
+.tag-add-row input:focus { border-color:#666; }
+.tag-modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
+@media (max-width:640px) {
+  .tags-page { padding:20px 14px 56px; }
+  .tags-hero h1 { font-size:24px; }
+  .suggestions-grid { grid-template-columns:1fr; }
+  .tag-dialog { padding:20px; }
+  .tag-add-row { flex-direction:column; }
+}

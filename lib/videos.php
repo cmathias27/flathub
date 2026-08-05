@@ -159,6 +159,164 @@ function sync_video_tags(array $videos): array
     return $next;
 }
 
+
+
+/**
+ * Lit le registre des décisions concernant les suggestions de tags.
+ * Format : { "video-id": {"status":"ignored|accepted", "tags":[...] } }
+ */
+function load_tag_suggestions_store(): array
+{
+    if (!is_dir(RATINGS_DIR)) {
+        @mkdir(RATINGS_DIR, 0775, true);
+    }
+    if (!is_file(TAG_SUGGESTIONS_FILE)) {
+        return [];
+    }
+    $data = json_decode((string) @file_get_contents(TAG_SUGGESTIONS_FILE), true);
+    return is_array($data) ? $data : [];
+}
+
+function save_json_store(string $file, array $data): bool
+{
+    if (!is_dir(dirname($file))) {
+        @mkdir(dirname($file), 0775, true);
+    }
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    return $json !== false && @file_put_contents($file, $json, LOCK_EX) !== false;
+}
+
+/**
+ * Normalise un nom pour comparer proprement les tags au texte du fichier.
+ * Les séparateurs (_, -, ., parenthèses, etc.) deviennent des espaces.
+ */
+function normalize_tag_search_text(string $value): string
+{
+    $value = preg_replace('/\.[^.]+$/u', '', $value);
+    $value = function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+    $value = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $value);
+    $value = preg_replace('/\s+/u', ' ', $value);
+    return trim($value);
+}
+
+/**
+ * Retourne les tags existants dans tags.json, dédoublonnés.
+ */
+function get_existing_tags(array $videos = []): array
+{
+    $stored = load_tags_store();
+    $all = [];
+    foreach ($stored as $tags) {
+        if (!is_array($tags)) continue;
+        foreach ($tags as $tag) {
+            if (is_string($tag) && trim($tag) !== '') $all[] = $tag;
+        }
+    }
+    foreach ($videos as $video) {
+        foreach (($video['tags'] ?? []) as $tag) {
+            if (is_string($tag) && trim($tag) !== '') $all[] = $tag;
+        }
+    }
+    $all = normalize_tag_list($all);
+    usort($all, fn($a, $b) => strcasecmp($a, $b));
+    return $all;
+}
+
+/**
+ * Trouve les tags existants réellement présents dans le nom de fichier.
+ * La comparaison se fait sur des mots complets afin d'éviter les faux positifs
+ * (ex. "art" ne correspond pas à "party").
+ */
+function find_matching_existing_tags(string $filename, array $existingTags): array
+{
+    $haystack = normalize_tag_search_text($filename);
+    if ($haystack === '') return [];
+
+    $matches = [];
+    foreach ($existingTags as $tag) {
+        $needle = normalize_tag_search_text($tag);
+        if ($needle === '') continue;
+        $pattern = '/(?:^| )' . preg_quote($needle, '/') . '(?: |$)/u';
+        if (preg_match($pattern, $haystack)) {
+            $matches[] = $tag;
+        }
+    }
+    return normalize_tag_list($matches);
+}
+
+/**
+ * Construit les suggestions pour les vidéos qui n'ont actuellement aucun tag
+ * et qui n'ont pas déjà été ignorées/traitées.
+ */
+function get_tag_suggestions(array $videos): array
+{
+    $existingTags = get_existing_tags($videos);
+    $decisions = load_tag_suggestions_store();
+    $suggestions = [];
+
+    foreach ($videos as $id => $video) {
+        if (!empty($video['tags'])) continue;
+        $decision = $decisions[$id] ?? null;
+        if (is_array($decision) && in_array(($decision['status'] ?? ''), ['ignored', 'accepted'], true)) continue;
+
+        $matches = find_matching_existing_tags($video['filename'] ?? '', $existingTags);
+        if (!$matches) continue;
+
+        $suggestions[] = [
+            'id' => $id,
+            'title' => $video['title'],
+            'filename' => $video['filename'],
+            'mtime' => $video['mtime'],
+            'date_h' => $video['date_h'],
+            'suggested_tags' => $matches,
+        ];
+    }
+
+    usort($suggestions, fn($a, $b) => $b['mtime'] <=> $a['mtime']);
+    return $suggestions;
+}
+
+/**
+ * Enregistre une décision utilisateur et, si elle est acceptée, les tags de la vidéo.
+ */
+function save_tag_decision(string $videoId, string $status, array $tags = []): array
+{
+    $videos = get_index();
+    if (!isset($videos[$videoId])) {
+        throw new RuntimeException('Vidéo introuvable.');
+    }
+    if (!in_array($status, ['ignored', 'accepted'], true)) {
+        throw new RuntimeException('Décision invalide.');
+    }
+
+    $decisions = load_tag_suggestions_store();
+    $cleanTags = normalize_tag_list($tags);
+    $decisions[$videoId] = [
+        'status' => $status,
+        'tags' => $cleanTags,
+        'updated_at' => date('c'),
+    ];
+
+    if ($status === 'accepted') {
+        $stored = load_tags_store();
+        $stored[$videoId] = $cleanTags;
+        if (!save_json_store(TAGS_FILE, $stored)) {
+            throw new RuntimeException('Impossible d’enregistrer les tags.');
+        }
+    }
+
+    if (!save_json_store(TAG_SUGGESTIONS_FILE, $decisions)) {
+        throw new RuntimeException('Impossible d’enregistrer la décision.');
+    }
+
+    // Les tags font partie de l'index exposé par l'API : invalide le cache
+    // immédiatement pour que la nouvelle décision soit visible sans attendre.
+    $indexCache = CACHE_DIR . '/index.json';
+    if (is_file($indexCache)) @unlink($indexCache);
+
+    return ['status' => $status, 'tags' => $cleanTags];
+}
+
 function video_file_path(array $video): ?string
 {
     $sourceDir = $video['source_dir'] ?? null;

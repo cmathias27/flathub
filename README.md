@@ -52,3 +52,13 @@ La page `delete.html` permet de préparer la suppression des vidéos dont la not
 ## Tags persistants
 
 Les tags sont stockés dans `data/tags.json`, avec l'ID de chaque vidéo comme clé. Lorsqu'une vidéo apparaît pour la première fois, les tags entre parenthèses de son nom de fichier sont extraits et enregistrés. Les tags déjà présents dans `tags.json` sont ensuite conservés, même si le nom du fichier change. Les entrées des vidéos qui ne sont plus présentes dans la bibliothèque sont nettoyées lors du prochain scan.
+
+## Suggestions de tags
+
+Les tags validés sont stockés dans `data/tags.json`. Pour les vidéos qui n'ont aucun tag, l'application compare le nom du fichier avec les tags déjà connus et affiche les correspondances dans `tags.html`.
+
+- **Ajouter les tags** : valide toutes les correspondances proposées.
+- **Modifier** : permet d'ajouter ou supprimer des tags avant validation.
+- **Ignorer** : refuse la suggestion et empêche toute nouvelle proposition pour cette vidéo.
+
+Les décisions sont persistées dans `data/tag_suggestions.json`.

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestion des tags — Médiathèque</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-left">
+    <a href="index.html" class="logo">
+      <svg class="logo-icon" viewBox="0 0 90 20"><rect width="90" height="20" rx="4" fill="#FF0000"/><path d="M36 6l10 4-10 4V6z" fill="#fff"/></svg>
+      <span>Médiathèque</span>
+    </a>
+  </div>
+  <div class="topbar-right">
+    <a class="topbar-link" href="index.html">Bibliothèque</a>
+    <a class="topbar-link" href="delete.html">À supprimer</a>
+  </div>
+</header>
+
+<main class="tags-page">
+  <div class="tags-hero">
+    <div>
+      <p class="eyebrow tag-eyebrow">Organisation</p>
+      <h1>Suggestions de tags</h1>
+      <p>Les suggestions sont trouvées en comparant les tags déjà existants avec les noms des vidéos qui n'ont encore aucun tag.</p>
+    </div>
+    <div class="tags-summary" id="tagsSummary">Chargement…</div>
+  </div>
+
+  <div id="tagsLoading" class="loading-state"><div class="spinner"></div><p>Recherche des correspondances…</p></div>
+  <div id="suggestionsGrid" class="suggestions-grid"></div>
+  <div id="tagsEmpty" class="empty-state" hidden>
+    <p>Aucune suggestion en attente.</p>
+    <a class="topbar-link" href="index.html">Retour à la bibliothèque</a>
+  </div>
+</main>
+
+<div class="tag-modal" id="tagModal" hidden>
+  <div class="tag-dialog" role="dialog" aria-modal="true" aria-labelledby="tagModalTitle">
+    <button class="modal-close" id="tagModalClose" aria-label="Fermer">×</button>
+    <p class="eyebrow">Modifier</p>
+    <h2 id="tagModalTitle">Tags de la vidéo</h2>
+    <p class="tag-modal-filename" id="tagModalFilename"></p>
+    <div class="tag-editor-list" id="tagEditorList"></div>
+    <div class="tag-add-row">
+      <input id="newTagInput" type="text" placeholder="Ajouter un tag…" autocomplete="off">
+      <button class="secondary-btn" id="addTagBtn">Ajouter</button>
+    </div>
+    <div class="tag-modal-actions">
+      <button class="secondary-btn" id="cancelTagBtn">Annuler</button>
+      <button class="primary-btn" id="saveTagBtn">Valider les tags</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const state = { suggestions: [], existingTags: [], current: null, draft: [] };
+  const el = {
+    loading: document.getElementById('tagsLoading'), grid: document.getElementById('suggestionsGrid'), empty: document.getElementById('tagsEmpty'),
+    summary: document.getElementById('tagsSummary'), modal: document.getElementById('tagModal'), modalTitle: document.getElementById('tagModalTitle'),
+    filename: document.getElementById('tagModalFilename'), editor: document.getElementById('tagEditorList'), input: document.getElementById('newTagInput'),
+    add: document.getElementById('addTagBtn'), save: document.getElementById('saveTagBtn'), cancel: document.getElementById('cancelTagBtn'), close: document.getElementById('tagModalClose')
+  };
+  const esc = s => { const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; };
+  const norm = s => String(s||'').trim().toLocaleLowerCase();
+
+  function render() {
+    el.loading.hidden = true;
+    el.summary.textContent = `${state.suggestions.length} suggestion${state.suggestions.length > 1 ? 's' : ''} en attente`;
+    el.empty.hidden = state.suggestions.length !== 0;
+    el.grid.innerHTML = state.suggestions.map(v => `
+      <article class="suggestion-card" data-id="${esc(v.id)}">
+        <div class="suggestion-card-body">
+          <p class="suggestion-filename" title="${esc(v.filename)}">${esc(v.filename)}</p>
+          <p class="suggestion-date">${esc(v.date_h)}</p>
+          <div class="suggestion-tags">
+            ${v.suggested_tags.map(t => `<span class="suggestion-chip">${esc(t)}</span>`).join('')}
+          </div>
+          <div class="suggestion-actions">
+            <button class="primary-btn accept-btn" data-id="${esc(v.id)}">Ajouter les tags</button>
+            <button class="secondary-btn edit-btn" data-id="${esc(v.id)}">Modifier</button>
+            <button class="danger-outline-small ignore-btn" data-id="${esc(v.id)}">Ignorer</button>
+          </div>
+        </div>
+      </article>`).join('');
+  }
+
+  async function load() {
+    try {
+      const res = await fetch('api/tags.php', {cache:'no-store'});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur');
+      state.suggestions = data.suggestions || [];
+      state.existingTags = data.existing_tags || [];
+      render();
+    } catch (e) {
+      el.loading.innerHTML = '<p>Impossible de charger les suggestions.</p>';
+      console.error(e);
+    }
+  }
+
+  async function decide(id, action, tags = []) {
+    const res = await fetch('api/tags.php', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, action, tags})});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur');
+    state.suggestions = state.suggestions.filter(v => v.id !== id);
+    render();
+  }
+
+  function openEditor(video) {
+    state.current = video;
+    state.draft = [...video.suggested_tags];
+    el.modalTitle.textContent = video.title;
+    el.filename.textContent = video.filename;
+    renderEditor();
+    el.modal.hidden = false;
+    setTimeout(() => el.input.focus(), 30);
+  }
+
+  function renderEditor() {
+    el.editor.innerHTML = state.draft.length ? state.draft.map((tag, i) => `<span class="editor-tag">${esc(tag)}<button type="button" data-index="${i}" aria-label="Supprimer ${esc(tag)}">×</button></span>`).join('') : '<span class="editor-empty">Aucun tag sélectionné.</span>';
+  }
+
+  function closeEditor() { el.modal.hidden = true; state.current = null; state.draft = []; }
+
+  el.grid.addEventListener('click', async e => {
+    const card = e.target.closest('.suggestion-card'); if (!card) return;
+    const id = card.dataset.id;
+    const video = state.suggestions.find(v => v.id === id); if (!video) return;
+    try {
+      if (e.target.closest('.accept-btn')) await decide(id, 'accept', video.suggested_tags);
+      else if (e.target.closest('.ignore-btn')) await decide(id, 'ignore');
+      else if (e.target.closest('.edit-btn')) openEditor(video);
+    } catch (err) { alert(err.message); }
+  });
+
+  el.editor.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-index]'); if (!btn) return;
+    state.draft.splice(Number(btn.dataset.index), 1); renderEditor();
+  });
+  function addTag() {
+    const tag = el.input.value.trim();
+    if (!tag) return;
+    if (!state.draft.some(t => norm(t) === norm(tag))) state.draft.push(tag);
+    el.input.value = ''; renderEditor(); el.input.focus();
+  }
+  el.add.addEventListener('click', addTag);
+  el.input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } });
+  el.cancel.addEventListener('click', closeEditor); el.close.addEventListener('click', closeEditor);
+  el.modal.addEventListener('click', e => { if (e.target === el.modal) closeEditor(); });
+  el.save.addEventListener('click', async () => {
+    if (!state.current) return;
+    try { await decide(state.current.id, 'accept', state.draft); closeEditor(); }
+    catch (err) { alert(err.message); }
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>
