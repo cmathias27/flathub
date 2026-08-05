@@ -18,6 +18,7 @@
     backBtn: document.getElementById('backBtn'), logoLink: document.getElementById('logoLink'), mainVideo: document.getElementById('mainVideo'), playerTitle: document.getElementById('playerTitle'),
     playerDate: document.getElementById('playerDate'), playerSize: document.getElementById('playerSize'), playerDuration: document.getElementById('playerDuration'), playerRating: document.getElementById('playerRating'), upNextList: document.getElementById('upNextList'),
     previousBtn: document.getElementById('previousBtn'), shuffleBtn: document.getElementById('shuffleBtn'), discoverBtn: document.getElementById('discoverBtn'), nextBtn: document.getElementById('nextBtn'),
+    menuBtn: document.getElementById('menuBtn'),
   };
 
   function initial(title) { return (title || '?').trim().charAt(0).toUpperCase() || '?'; }
@@ -61,7 +62,12 @@
   const HOVER_DELAY = 350;
   function startPreview(video, streamUrl) { video.muted = true; if (video.dataset.loadedSrc !== streamUrl) { video.src=streamUrl; video.dataset.loadedSrc=streamUrl; } video.play().then(()=>video.classList.add('active')).catch(()=>{}); }
   function stopPreview(video) { video.classList.remove('active'); video.pause(); video.removeAttribute('src'); delete video.dataset.loadedSrc; video.load(); }
-  function attachHoverPreviews(container, selector) { container.querySelectorAll(selector).forEach(wrap => { const video=wrap.querySelector('.thumb-preview'), streamUrl=wrap.dataset.stream; if(!video||!streamUrl)return; let timer=null; wrap.addEventListener('mouseenter',()=>{timer=setTimeout(()=>startPreview(video,streamUrl),HOVER_DELAY)}); wrap.addEventListener('mouseleave',()=>{clearTimeout(timer);stopPreview(video)}); }); }
+  function attachHoverPreviews(container, selector) {
+    // Les prévisualisations au survol n'ont d'effet que sur pointeur fin (souris).
+    // Sur tactile, elles seraient déclenchées de façon incohérente : on les désactive.
+    if (window.matchMedia && window.matchMedia('(hover: none)').matches) return;
+    container.querySelectorAll(selector).forEach(wrap => { const video=wrap.querySelector('.thumb-preview'), streamUrl=wrap.dataset.stream; if(!video||!streamUrl)return; let timer=null; wrap.addEventListener('mouseenter',()=>{timer=setTimeout(()=>startPreview(video,streamUrl),HOVER_DELAY)}); wrap.addEventListener('mouseleave',()=>{clearTimeout(timer);stopPreview(video)}); });
+  }
 
   function renderGrid() { el.grid.innerHTML=state.filtered.map(cardTemplate).join(''); el.empty.hidden=state.filtered.length!==0; attachHoverPreviews(el.grid,'.thumb-wrap'); }
 
@@ -166,5 +172,17 @@
   el.shuffleBtn.addEventListener('click',()=>{state.shuffle=!state.shuffle;updateNavigationButtons();});
   el.discoverBtn.addEventListener('click',()=>{state.discover=!state.discover; if(state.discover) state.shuffle=true; updateNavigationButtons();});
   el.mainVideo.addEventListener('ended',()=>{nextVideo();});
+
+  // Sur mobile, le bouton ☰ replie/déplie la barre de recherche pour laisser
+  // de la place au tri et au lien "À supprimer" dans la barre du haut.
+  if (el.menuBtn) {
+    el.menuBtn.addEventListener('click', () => {
+      const isOpen = document.body.classList.toggle('search-open');
+      el.menuBtn.setAttribute('aria-expanded', String(isOpen));
+      el.menuBtn.classList.toggle('is-active', isOpen);
+      if (isOpen) el.search.focus();
+    });
+  }
+
   loadVideos();
 })();

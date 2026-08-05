@@ -1,4 +1,10 @@
 <?php
+// --- DEBUG TEMPORAIRE : à retirer une fois le problème résolu ---
+ini_set("display_errors", 1);
+ini_set("display_startup_errors", 1);
+error_reporting(E_ALL);
+// -----------------------------------------------------------------
+
 require_once __DIR__ . '/../lib/videos.php';
 
 $id = $_GET['id'] ?? '';

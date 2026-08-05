@@ -1,4 +1,10 @@
 <?php
+// --- DEBUG TEMPORAIRE : à retirer une fois le problème résolu ---
+ini_set("display_errors", 1);
+ini_set("display_startup_errors", 1);
+error_reporting(E_ALL);
+// -----------------------------------------------------------------
+
 require_once __DIR__ . '/../config.php';
 
 // Durée de vie du cache d'index (secondes). Le dossier n'est re-scanné en
@@ -120,7 +126,7 @@ function scan_videos(): array
     usort($videos, fn($a, $b) => $b['mtime'] <=> $a['mtime']);
 
     foreach ($videos as &$v) {
-        $v['duration_h'] = get_cached_duration($v['id'], LIBRARY_DIR . DIRECTORY_SEPARATOR . $v['relpath']);
+        $v['duration_h'] = get_cached_duration($v['id'], $v['source_dir'] . DIRECTORY_SEPARATOR . $v['relpath']);
     }
     unset($v);
 
