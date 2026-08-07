@@ -1,64 +1,188 @@
-# Médiathèque – lecteur vidéo style YouTube
+# Bibliothèque vidéo
 
-## Installation
+## Présentation
 
-1. Dépose tout le contenu de ce dossier sur ton serveur web PHP (Apache/Nginx + PHP-FPM, ou même `php -S` pour tester).
-2. Vérifie que **ffmpeg** et **ffprobe** sont installés et accessibles dans le `PATH` du serveur (utilisés uniquement pour lire les durées et générer les miniatures — jamais pour modifier tes fichiers).
-3. Vérifie que `/media/library` et `/media/video` sont lisibles par l'utilisateur système qui exécute PHP (ex: `www-data`). Aucune écriture n'est jamais effectuée dans ces deux dossiers. Le dossier `/media/video` est la source « À traiter ».
-4. Le dossier `cache/thumbs/` doit être accessible en écriture par PHP (c'est le seul dossier où l'appli écrit : miniatures `.jpg` et durées `.duration` mises en cache).
+Cette application est une bibliothèque vidéo permettant d'organiser, parcourir et retrouver facilement des vidéos à partir de leurs noms de fichiers et de leurs métadonnées.
 
-## Test rapide en local
+Elle a été conçue pour fonctionner avec une bibliothèque vidéo locale existante, sans nécessiter de renommer les fichiers ni de modifier les fichiers vidéo.
 
-```bash
-php -S 127.0.0.1:8000
+L'application permet notamment de :
+
+* parcourir les vidéos disponibles ;
+* rechercher des vidéos ;
+* lire les vidéos directement depuis la bibliothèque ;
+* attribuer et gérer des tags ;
+* filtrer la bibliothèque par tag ;
+* retrouver rapidement toutes les vidéos associées à un même tag ;
+* enrichir progressivement la bibliothèque grâce à la détection automatique des tags.
+
+---
+
+## Principe des tags
+
+Les tags sont initialement détectés à partir du nom des fichiers vidéo.
+
+Tout texte placé entre parenthèses est considéré comme un tag.
+
+Par exemple :
+
+```text
+(Studio Alpha) - Une scène - (Paul Martin).mp4
 ```
-Puis ouvre `http://127.0.0.1:8000/index.html`.
 
-## Structure
+peut produire les tags :
 
-```
-index.html          Page principale (grille + lecteur)
-style.css            Thème sombre façon YouTube
-app.js               Logique front (fetch API, navigation grille/lecteur)
-config.php           Chemin de /media/library, extensions, dossier de cache
-lib/videos.php        Scan du dossier (lecture seule), métadonnées, tri
-api/videos.php        Endpoint JSON : liste des vidéos triées par date desc
-api/thumb.php          Génère/sert une miniature (cache dans cache/thumbs/)
-api/stream.php          Sert la vidéo en streaming avec support Range (seek)
-cache/thumbs/         Cache des miniatures + durées + index vidéo (généré automatiquement)
-data/tags.json        Tags persistants associés aux IDs des vidéos
+```text
+Studio Alpha
+Paul Martin
 ```
 
-## Fonctionnement
+Les parenthèses vides sont ignorées.
 
-- `/media/library` et `/media/video` sont scannés par `api/videos.php` et réunis dans une seule médiathèque, triés par date de modification décroissante (le plus récent en premier).
-- `/media/video` apparaît comme source « À traiter » et est soumis aux mêmes fonctions de lecture, notation, Discover et nettoyage par rating.
-- Les sous-dossiers sont parcourus récursivement.
-- Les formats reconnus par défaut : mp4, webm, mkv, mov, avi, m4v (modifiable dans `config.php`).
-- Aucun fichier de `/media/library` ou `/media/video` n'est modifié ou renommé. La page de nettoyage peut supprimer définitivement les vidéos notées sous 3 étoiles dans l'un ou l'autre dossier après confirmation.
+Les fichiers vidéo ne sont jamais renommés ou modifiés par l'application.
 
-## Nettoyage par notation
+---
 
-La page `delete.html` permet de préparer la suppression des vidéos dont la note moyenne est **strictement inférieure à 3/5**.
+## Registre permanent des tags
 
-- Les vidéos sans note ne sont pas proposées à la suppression.
-- Chaque vidéo est prévisualisable directement avant suppression.
-- Suppression unitaire ou en masse avec cases à cocher.
-- Une confirmation finale est demandée avant toute suppression.
-- L'API `api/deletions.php` refait la vérification du rating côté serveur avant de supprimer le fichier.
-- La suppression est définitive dans `/media/library`.
-- Les caches associés et la note de la vidéo supprimée sont également nettoyés.
+Les tags connus sont conservés dans un registre permanent.
 
-## Tags persistants
+Ce registre constitue la mémoire de l'application.
 
-Les tags sont stockés dans `data/tags.json`, avec l'ID de chaque vidéo comme clé. Lorsqu'une vidéo apparaît pour la première fois, les tags entre parenthèses de son nom de fichier sont extraits et enregistrés. Les tags déjà présents dans `tags.json` sont ensuite conservés, même si le nom du fichier change. Les entrées des vidéos qui ne sont plus présentes dans la bibliothèque sont nettoyées lors du prochain scan.
+Un tag découvert une fois peut donc continuer à être connu même si la vidéo qui l'avait apporté est ensuite supprimée de la bibliothèque.
 
-## Suggestions de tags
+Cette séparation permet de conserver la connaissance des tags indépendamment des vidéos actuellement présentes.
 
-Les tags validés sont stockés dans `data/tags.json`. Pour les vidéos qui n'ont aucun tag, l'application compare le nom du fichier avec les tags déjà connus et affiche les correspondances dans `tags.html`.
+Les relations entre une vidéo et ses tags sont, elles, liées à la bibliothèque actuelle et peuvent être nettoyées lorsqu'une vidéo disparaît.
 
-- **Ajouter les tags** : valide toutes les correspondances proposées.
-- **Modifier** : permet d'ajouter ou supprimer des tags avant validation.
-- **Ignorer** : refuse la suggestion et empêche toute nouvelle proposition pour cette vidéo.
+---
 
-Les décisions sont persistées dans `data/tag_suggestions.json`.
+## Détection intelligente des tags
+
+Le système ne se limite pas aux tags explicitement présents entre parenthèses.
+
+Au fil de l'utilisation, il peut découvrir qu'un tag déjà connu apparaît dans le nom d'une vidéo qui ne possède pas encore ce tag.
+
+Par exemple, si le tag suivant est déjà connu :
+
+```text
+Paul
+```
+
+et qu'une vidéo possède le nom :
+
+```text
+Une histoire avec Paul Martin.mp4
+```
+
+l'application peut proposer :
+
+```text
+Ajouter le tag :
+Paul
+```
+
+La proposition doit être validée par l'utilisateur avant que le tag soit ajouté.
+
+Cette approche permet à la bibliothèque de devenir progressivement plus riche sans modifier automatiquement les données existantes.
+
+---
+
+## Validation des suggestions
+
+Les suggestions automatiques sont soumises à l'utilisateur.
+
+Lorsqu'une vidéo possède une ou plusieurs correspondances potentielles, l'utilisateur peut :
+
+* accepter le tag proposé ;
+* refuser la proposition ;
+* modifier la sélection ;
+* ajouter manuellement un autre tag ;
+* retirer un tag proposé avant validation.
+
+Aucune modification définitive n'est effectuée sans action de l'utilisateur.
+
+Les refus peuvent être mémorisés afin d'éviter de proposer continuellement la même association.
+
+---
+
+## Ajout manuel de tags
+
+Les tags ne sont pas limités à ceux détectés automatiquement.
+
+Lors de la revue d'une vidéo, il est possible d'ajouter manuellement un tag.
+
+Il est également possible de créer directement un nouveau tag depuis le menu des tags.
+
+Un tag créé manuellement rejoint alors le registre permanent et pourra être utilisé par le système lors des futures recherches et détections.
+
+---
+
+## Menu des tags
+
+Un menu dédié aux tags est accessible depuis le bouton **☰** situé en haut à gauche de l'interface.
+
+Le menu est fermé par défaut afin de conserver un maximum d'espace pour la bibliothèque vidéo.
+
+Lorsqu'il est ouvert, il permet notamment de :
+
+* consulter tous les tags connus ;
+* rechercher ou sélectionner un tag ;
+* filtrer la bibliothèque par tag ;
+* ajouter manuellement un nouveau tag.
+
+Cliquer sur un tag permet de retrouver toutes les vidéos qui lui sont associées.
+
+---
+
+## Recherche et navigation
+
+La bibliothèque permet de rechercher les vidéos à partir de leur nom et de naviguer rapidement entre les contenus.
+
+Les tags constituent une seconde méthode de navigation.
+
+Depuis une vidéo, les tags associés peuvent être sélectionnés pour afficher les autres vidéos utilisant le même tag.
+
+Cela permet de créer progressivement une navigation transversale dans la bibliothèque, indépendamment de l'organisation physique des fichiers.
+
+---
+
+## Conservation des données
+
+Le système distingue volontairement deux types d'informations.
+
+### Tags connus
+
+Les tags connus sont conservés de manière permanente.
+
+Ils représentent la connaissance acquise par l'application et ne sont pas supprimés simplement parce qu'une vidéo disparaît.
+
+### Tags associés aux vidéos
+
+Les associations :
+
+```text
+Vidéo → Tags
+```
+
+sont conservées pour les vidéos présentes dans la bibliothèque.
+
+Lorsqu'une vidéo est supprimée, son association peut être supprimée sans supprimer pour autant les tags du registre permanent.
+
+Cette architecture permet d'éviter de perdre les connaissances acquises au fil du temps.
+
+---
+
+## Philosophie du système
+
+Le système privilégie une approche progressive et contrôlée :
+
+1. les fichiers vidéo restent inchangés ;
+2. les tags sont découverts à partir des noms de fichiers ;
+3. les nouveaux tags sont mémorisés ;
+4. les correspondances potentielles sont recherchées progressivement ;
+5. les modifications proposées sont soumises à l'utilisateur ;
+6. les décisions validées enrichissent la bibliothèque ;
+7. les connaissances globales sont conservées même lorsque les vidéos disparaissent.
+
+L'objectif est de transformer progressivement une simple collection de fichiers vidéo en une bibliothèque organisée, navigable et enrichie par les tags.

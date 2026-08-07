@@ -13,6 +13,7 @@ try {
             'suggestions' => $suggestions,
             'count' => count($suggestions),
             'existing_tags' => get_existing_tags($videos),
+            'registry' => load_tag_registry(),
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -24,18 +25,24 @@ try {
     }
 
     $payload = json_decode((string) file_get_contents('php://input'), true);
-    if (!is_array($payload)) {
-        throw new RuntimeException('Données invalides.');
-    }
+    if (!is_array($payload)) throw new RuntimeException('Données invalides.');
 
-    $id = trim((string) ($payload['id'] ?? ''));
     $action = (string) ($payload['action'] ?? '');
+    $id = trim((string) ($payload['id'] ?? ''));
     $tags = is_array($payload['tags'] ?? null) ? $payload['tags'] : [];
+
+    if ($action === 'add_tag') {
+        $tag = trim((string) ($payload['tag'] ?? ''));
+        if ($tag === '') throw new RuntimeException('Tag manquant.');
+        register_tags([$tag]);
+        echo json_encode(['ok' => true, 'tag' => $tag, 'tags' => get_existing_tags($videos)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 
     if ($id === '') throw new RuntimeException('ID vidéo manquant.');
 
     if ($action === 'ignore') {
-        $result = save_tag_decision($id, 'ignored', []);
+        $result = save_tag_decision($id, 'ignored', $tags);
     } elseif ($action === 'accept') {
         $result = save_tag_decision($id, 'accepted', $tags);
     } else {

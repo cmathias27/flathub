@@ -615,3 +615,72 @@ button { font-family: inherit; cursor: pointer; }
   .tag-dialog { padding:20px; }
   .tag-add-row { flex-direction:column; }
 }
+
+/* ---------- Apprentissage des tags composites ---------- */
+.tag-section { margin-top: 34px; }
+.tag-section-heading { margin-bottom: 16px; }
+.tag-section-heading h2 { margin: 0 0 6px; font-size: 20px; }
+.tag-section-heading p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.split-preview { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-bottom:18px; }
+.split-plus { color: var(--text-secondary); font-weight:700; }
+.player-tag-suggestions { margin-top: 14px; }
+.player-tag-suggestion { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:var(--bg-elevated); font-size:13px; }
+.player-tag-suggestion strong { margin-right:5px; }
+.player-tag-suggestion-actions { display:flex; gap:7px; }
+
+.tag-suggestion-copy { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px; }
+.suggestion-chip-highlight { border-color: var(--accent, currentColor); font-weight:600; }
+
+/* ---------- Menu latéral des tags ---------- */
+.tag-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0,0,0,.58);
+  opacity: 0;
+  transition: opacity .22s ease;
+}
+.tag-drawer-backdrop:not([hidden]) { opacity: 1; }
+.tag-drawer-backdrop[hidden] { display: block; pointer-events: none; opacity: 0; }
+.tag-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 50;
+  width: min(360px, 88vw);
+  padding: 18px;
+  background: #171717;
+  border-right: 1px solid var(--border);
+  box-shadow: 18px 0 50px rgba(0,0,0,.4);
+  transform: translateX(-105%);
+  transition: transform .24s ease;
+  overflow-y: auto;
+}
+.tag-drawer.is-open { transform: translateX(0); }
+.tag-drawer-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; }
+.tag-drawer-header h2 { margin:2px 0 0; font-size:22px; }
+.drawer-add-tag { padding:14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-elevated); margin-bottom:20px; }
+.drawer-add-tag label { display:block; font-size:12px; color:var(--text-secondary); margin-bottom:8px; }
+.drawer-add-tag-row { display:flex; gap:8px; }
+.drawer-add-tag-row input { flex:1; min-width:0; border:1px solid var(--border); border-radius:8px; background:#111; color:var(--text); padding:10px 11px; outline:none; }
+.drawer-add-tag-row input:focus { border-color:#666; }
+.drawer-tag-heading { display:flex; justify-content:space-between; align-items:center; color:var(--text-secondary); font-size:12px; margin:0 2px 9px; }
+.drawer-tag-heading span:last-child { padding:2px 7px; border-radius:999px; background:var(--bg-elevated); }
+.drawer-tag-list { display:flex; flex-direction:column; gap:6px; }
+.drawer-tag-item { width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid transparent; border-radius:9px; padding:9px 10px; background:transparent; color:var(--text); text-align:left; }
+.drawer-tag-item:hover { background:var(--bg-elevated); border-color:var(--border); }
+.drawer-tag-item span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.drawer-tag-item small { flex-shrink:0; color:var(--text-secondary); }
+.drawer-loading { color:var(--text-secondary); font-size:13px; padding:12px 2px; }
+.manual-tag-row { display:flex; gap:8px; margin-top:14px; }
+.manual-tag-row input { flex:1; min-width:0; border:1px solid var(--border); border-radius:8px; background:#111; color:var(--text); padding:9px 10px; outline:none; }
+.manual-tag-row input:focus { border-color:#666; }
+.editable-suggestion-tags { display:flex; flex-wrap:wrap; gap:7px; margin-top:8px; }
+.editor-suggestion-tag { padding-right:5px; }
+.remove-suggested-tag { border:0; background:transparent; color:var(--text-secondary); font-size:16px; line-height:1; padding:0 2px; cursor:pointer; }
+.remove-suggested-tag:hover { color:#fff; }
+@media (max-width:640px) {
+  .tag-drawer { width:min(340px,92vw); }
+  .drawer-add-tag-row { flex-direction:column; }
+}

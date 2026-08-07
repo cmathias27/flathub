@@ -10,7 +10,7 @@
 
 <header class="topbar">
   <div class="topbar-left">
-    <button class="icon-btn" id="menuBtn" aria-label="Rechercher" aria-expanded="false">
+    <button class="icon-btn" id="menuBtn" aria-label="Ouvrir le menu des tags" aria-expanded="false">
       <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
     </button>
     <a href="#" class="logo" id="logoLink">
@@ -45,6 +45,35 @@
     </select>
   </div>
 </header>
+
+<div class="tag-drawer-backdrop" id="tagDrawerBackdrop" hidden></div>
+<aside class="tag-drawer" id="tagDrawer" aria-hidden="true">
+  <div class="tag-drawer-header">
+    <div>
+      <p class="eyebrow">Organisation</p>
+      <h2>Tags</h2>
+    </div>
+    <button type="button" class="icon-btn" id="tagDrawerClose" aria-label="Fermer le menu">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+
+  <form class="drawer-add-tag" id="drawerAddTagForm">
+    <label for="drawerTagInput">Ajouter un tag</label>
+    <div class="drawer-add-tag-row">
+      <input id="drawerTagInput" type="text" placeholder="Nouveau tag…" autocomplete="off">
+      <button type="submit" class="primary-btn">Ajouter</button>
+    </div>
+  </form>
+
+  <div class="drawer-tag-heading">
+    <span>Tags disponibles</span>
+    <span id="drawerTagCount">0</span>
+  </div>
+  <div class="drawer-tag-list" id="drawerTagList">
+    <div class="drawer-loading">Chargement…</div>
+  </div>
+</aside>
 
 <main id="app">
 
@@ -92,6 +121,7 @@
           </button>
         </div>
         <div class="player-tags" id="playerTags" aria-label="Tags de la vidéo"></div>
+        <div class="player-tag-suggestions" id="playerTagSuggestions" hidden></div>
         <div class="player-meta">
           <span id="playerDate"></span>
           <span class="dot">•</span>

@@ -17,9 +17,11 @@
     grid: document.getElementById('videoGrid'), empty: document.getElementById('emptyState'), loading: document.getElementById('loadingState'),
     gridView: document.getElementById('gridView'), playerView: document.getElementById('playerView'), search: document.getElementById('searchInput'), sort: document.getElementById('sortSelect'),
     backBtn: document.getElementById('backBtn'), logoLink: document.getElementById('logoLink'), mainVideo: document.getElementById('mainVideo'), playerTitle: document.getElementById('playerTitle'),
-    playerDate: document.getElementById('playerDate'), playerSize: document.getElementById('playerSize'), playerDuration: document.getElementById('playerDuration'), playerRating: document.getElementById('playerRating'), playerTags: document.getElementById('playerTags'), upNextList: document.getElementById('upNextList'),
+    playerDate: document.getElementById('playerDate'), playerSize: document.getElementById('playerSize'), playerDuration: document.getElementById('playerDuration'), playerRating: document.getElementById('playerRating'), playerTags: document.getElementById('playerTags'), playerTagSuggestions: document.getElementById('playerTagSuggestions'), upNextList: document.getElementById('upNextList'),
     previousBtn: document.getElementById('previousBtn'), shuffleBtn: document.getElementById('shuffleBtn'), discoverBtn: document.getElementById('discoverBtn'), nextBtn: document.getElementById('nextBtn'),
     menuBtn: document.getElementById('menuBtn'),
+    tagDrawer: document.getElementById('tagDrawer'), tagDrawerBackdrop: document.getElementById('tagDrawerBackdrop'), tagDrawerClose: document.getElementById('tagDrawerClose'),
+    drawerTagList: document.getElementById('drawerTagList'), drawerTagCount: document.getElementById('drawerTagCount'), drawerAddTagForm: document.getElementById('drawerAddTagForm'), drawerTagInput: document.getElementById('drawerTagInput'),
   };
 
   function initial(title) { return (title || '?').trim().charAt(0).toUpperCase() || '?'; }
@@ -36,11 +38,72 @@
     return String(tag || '').trim().toLocaleLowerCase();
   }
 
+  let availableTags = [];
+
+  function renderTagDrawer() {
+    if (!el.drawerTagList) return;
+    const tags = [...availableTags].sort((a,b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+    if (el.drawerTagCount) el.drawerTagCount.textContent = String(tags.length);
+    el.drawerTagList.innerHTML = tags.length
+      ? tags.map(tag => `<button type="button" class="drawer-tag-item" data-tag="${escapeHtml(tag)}"><span>${escapeHtml(tag)}</span></button>`).join('')
+      : '<div class="drawer-loading">Aucun tag disponible.</div>';
+  }
+
+  function openTagDrawer() {
+    if (!el.tagDrawer) return;
+    el.tagDrawer.classList.add('is-open');
+    el.tagDrawer.setAttribute('aria-hidden', 'false');
+    if (el.tagDrawerBackdrop) el.tagDrawerBackdrop.hidden = false;
+    if (el.menuBtn) el.menuBtn.classList.add('is-active');
+  }
+
+  function closeTagDrawer() {
+    if (!el.tagDrawer) return;
+    el.tagDrawer.classList.remove('is-open');
+    el.tagDrawer.setAttribute('aria-hidden', 'true');
+    if (el.tagDrawerBackdrop) el.tagDrawerBackdrop.hidden = true;
+    if (el.menuBtn) el.menuBtn.classList.remove('is-active');
+  }
+
+  async function loadAvailableTags() {
+    if (!el.drawerTagList) return;
+    try {
+      const res = await fetch('api/tags.php', { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur');
+      availableTags = data.existing_tags || Object.keys(data.registry || {});
+      renderTagDrawer();
+    } catch (error) {
+      el.drawerTagList.innerHTML = '<div class="drawer-loading">Impossible de charger les tags.</div>';
+      console.error(error);
+    }
+  }
+
+  async function createGlobalTag(tag) {
+    const clean = String(tag || '').trim();
+    if (!clean) return;
+    const res = await fetch('api/tags.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'add_tag', tag: clean })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Impossible d’ajouter le tag.');
+    availableTags = data.tags || availableTags;
+    renderTagDrawer();
+  }
+
   function renderPlayerTags(v) {
     const tags = Array.isArray(v.tags) ? v.tags : [];
     el.playerTags.innerHTML = tags.length
       ? tags.map(tag => `<button type="button" class="tag-chip" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join('')
       : '<span class="tags-empty">Aucun tag détecté dans le nom du fichier.</span>';
+  }
+
+  function renderPlayerTagSuggestions(v) {
+    if (!el.playerTagSuggestions) return;
+    el.playerTagSuggestions.hidden = true;
+    el.playerTagSuggestions.innerHTML = '';
   }
 
   function renderActiveTag() {
@@ -139,7 +202,7 @@
       }
     }
     state.currentId=id;
-    el.mainVideo.src=video.stream_url; el.playerTitle.textContent=video.title; el.playerDate.textContent=video.date_h; el.playerSize.textContent=video.size_h; el.playerDuration.textContent=video.duration_h; renderPlayerRating(video); renderPlayerTags(video);
+    el.mainVideo.src=video.stream_url; el.playerTitle.textContent=video.title; el.playerDate.textContent=video.date_h; el.playerSize.textContent=video.size_h; el.playerDuration.textContent=video.duration_h; renderPlayerRating(video); renderPlayerTags(video); renderPlayerTagSuggestions(video);
     const others=state.videos.filter(v=>v.id!==id).sort((a,b)=>b.mtime-a.mtime); el.upNextList.innerHTML=others.map(v=>upNextTemplate(v,false)).join(''); attachHoverPreviews(el.upNextList,'.up-next-thumb');
     el.gridView.hidden=true; el.playerView.hidden=false; updateNavigationButtons(); window.scrollTo({top:0,behavior:'instant'}); el.mainVideo.play().catch(()=>{});
   }
@@ -202,7 +265,7 @@
   async function rateVideo(id, rating){
     try { const res=await fetch('api/ratings.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,rating})}); const data=await res.json(); if(!res.ok)throw new Error(data.error||'Erreur'); state.ratings[id]=data.rating; applySortAndFilter(); if(state.currentId===id){const v=state.videos.find(x=>x.id===id); if(v)renderPlayerRating(v);} } catch(e){ console.error(e); alert('Impossible d’enregistrer la note.'); }
   }
-  async function loadVideos(){ try { const [res]=await Promise.all([fetch('api/videos.php'),loadRatings()]); const data=await res.json(); state.videos=data.videos||[]; el.loading.hidden=true; applySortAndFilter(); } catch(err){el.loading.innerHTML='<p>Impossible de charger la bibliothèque.</p>';console.error(err);} }
+  async function loadVideos(){ try { const [res]=await Promise.all([fetch('api/videos.php'), loadRatings()]); const data=await res.json(); state.videos=data.videos||[]; el.loading.hidden=true; applySortAndFilter(); } catch(err){el.loading.innerHTML='<p>Impossible de charger la bibliothèque.</p>';console.error(err);} }
 
   el.grid.addEventListener('click',e=>{const star=e.target.closest('.rating-star'); if(star){e.stopPropagation();rateVideo(star.dataset.id,Number(star.dataset.rating));return;} const card=e.target.closest('.video-card');if(card)openPlayer(card.dataset.id);});
   el.upNextList.addEventListener('click',e=>{const item=e.target.closest('.up-next-item');if(item)openPlayer(item.dataset.id);});
@@ -218,16 +281,34 @@
   el.discoverBtn.addEventListener('click',()=>{state.discover=!state.discover; if(state.discover) state.shuffle=true; updateNavigationButtons();});
   el.mainVideo.addEventListener('ended',()=>{nextVideo();});
 
-  // Sur mobile, le bouton ☰ replie/déplie la barre de recherche pour laisser
-  // de la place au tri et au lien "À supprimer" dans la barre du haut.
-  if (el.menuBtn) {
-    el.menuBtn.addEventListener('click', () => {
-      const isOpen = document.body.classList.toggle('search-open');
-      el.menuBtn.setAttribute('aria-expanded', String(isOpen));
-      el.menuBtn.classList.toggle('is-active', isOpen);
-      if (isOpen) el.search.focus();
+  // Le bouton ☰ ouvre le menu latéral des tags. Le menu est fermé par défaut.
+  if (el.menuBtn) el.menuBtn.addEventListener('click', () => {
+    if (el.tagDrawer && el.tagDrawer.classList.contains('is-open')) closeTagDrawer();
+    else openTagDrawer();
+  });
+  if (el.tagDrawerClose) el.tagDrawerClose.addEventListener('click', closeTagDrawer);
+  if (el.tagDrawerBackdrop) el.tagDrawerBackdrop.addEventListener('click', closeTagDrawer);
+  if (el.drawerTagList) {
+    el.drawerTagList.addEventListener('click', event => {
+      const item = event.target.closest('.drawer-tag-item');
+      if (!item) return;
+      filterByTag(item.dataset.tag);
+      closeTagDrawer();
+    });
+  }
+  if (el.drawerAddTagForm) {
+    el.drawerAddTagForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      try {
+        await createGlobalTag(el.drawerTagInput.value);
+        el.drawerTagInput.value = '';
+        el.drawerTagInput.focus();
+      } catch (error) {
+        alert(error.message);
+      }
     });
   }
 
+  loadAvailableTags();
   loadVideos();
 })();

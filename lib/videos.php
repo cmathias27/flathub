@@ -102,9 +102,6 @@ function load_tags_store(): array
     return is_array($data) ? $data : [];
 }
 
-/**
- * Nettoie une liste de tags avant persistance.
- */
 function normalize_tag_list(array $tags): array
 {
     $result = [];
@@ -115,10 +112,7 @@ function normalize_tag_list(array $tags): array
         $tag = trim(preg_replace('/\s+/u', ' ', $rawTag));
         if ($tag === '') continue;
 
-        $key = function_exists('mb_strtolower')
-            ? mb_strtolower($tag, 'UTF-8')
-            : strtolower($tag);
-
+        $key = canonical_tag_key($tag);
         if (isset($seen[$key])) continue;
         $seen[$key] = true;
         $result[] = $tag;
@@ -128,68 +122,87 @@ function normalize_tag_list(array $tags): array
 }
 
 /**
- * Persiste les tags associés aux vidéos.
- * Les anciennes entrées correspondant à des vidéos disparues/renommées sont
- * retirées afin d'éviter que tags.json ne grossisse indéfiniment.
+ * Registre global permanent des tags découverts dans les noms de fichiers
+ * ou déjà présents dans tags.json. Il n'est jamais nettoyé.
  */
-function sync_video_tags(array $videos): array
+function load_tag_registry(): array
 {
-    $stored = load_tags_store();
-    $next = [];
-
-    foreach ($videos as $id => $video) {
-        if (isset($stored[$id]) && is_array($stored[$id])) {
-            $next[$id] = normalize_tag_list($stored[$id]);
-        } else {
-            $next[$id] = extract_tags($video['filename'] ?? '');
-        }
-    }
-
-    if ($next !== $stored) {
-        if (!is_dir(RATINGS_DIR)) {
-            @mkdir(RATINGS_DIR, 0775, true);
-        }
-        @file_put_contents(
-            TAGS_FILE,
-            json_encode($next, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
-            LOCK_EX
-        );
-    }
-
-    return $next;
+    if (!is_file(TAG_REGISTRY_FILE)) return [];
+    $data = json_decode((string) @file_get_contents(TAG_REGISTRY_FILE), true);
+    return is_array($data) ? $data : [];
 }
 
+function register_tags(array $tags): array
+{
+    $registry = load_tag_registry();
+    $now = date('c');
+    $changed = false;
+    $lookup = [];
 
+    foreach ($registry as $existing => $meta) {
+        $lookup[canonical_tag_key((string) $existing)] = $existing;
+    }
+
+    foreach (normalize_tag_list($tags) as $tag) {
+        $key = canonical_tag_key($tag);
+        if ($key === '') continue;
+
+        if (!isset($lookup[$key])) {
+            $registry[$tag] = [
+                'first_seen' => $now,
+                'last_seen' => $now,
+            ];
+            $lookup[$key] = $tag;
+            $changed = true;
+        } else {
+            $existing = $lookup[$key];
+            if (!isset($registry[$existing]) || !is_array($registry[$existing])) {
+                $registry[$existing] = [];
+                $changed = true;
+            }
+            if (empty($registry[$existing]['first_seen'])) {
+                $registry[$existing]['first_seen'] = $now;
+                $changed = true;
+            }
+            // Le registre reste permanent ; last_seen est purement informatif.
+            if (($registry[$existing]['last_seen'] ?? '') !== $now) {
+                $registry[$existing]['last_seen'] = $now;
+                $changed = true;
+            }
+        }
+    }
+
+    if ($changed) save_json_store(TAG_REGISTRY_FILE, $registry);
+    return $registry;
+}
 
 /**
- * Lit le registre des décisions concernant les suggestions de tags.
- * Format : { "video-id": {"status":"ignored|accepted", "tags":[...] } }
+ * Décisions persistantes des suggestions.
+ * Format :
+ * {
+ *   "video-id": {
+ *     "suggestions": {
+ *       "paul": {"tag": "Paul", "status": "accepted", "updated_at": "..."}
+ *     }
+ *   }
+ * }
+ *
+ * L'ancien format (video-id => {status: ...}) reste lu pour compatibilité.
  */
 function load_tag_suggestions_store(): array
 {
-    if (!is_dir(RATINGS_DIR)) {
-        @mkdir(RATINGS_DIR, 0775, true);
-    }
-    if (!is_file(TAG_SUGGESTIONS_FILE)) {
-        return [];
-    }
+    if (!is_file(TAG_SUGGESTIONS_FILE)) return [];
     $data = json_decode((string) @file_get_contents(TAG_SUGGESTIONS_FILE), true);
     return is_array($data) ? $data : [];
 }
 
 function save_json_store(string $file, array $data): bool
 {
-    if (!is_dir(dirname($file))) {
-        @mkdir(dirname($file), 0775, true);
-    }
+    if (!is_dir(dirname($file))) @mkdir(dirname($file), 0775, true);
     $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     return $json !== false && @file_put_contents($file, $json, LOCK_EX) !== false;
 }
 
-/**
- * Normalise un nom pour comparer proprement les tags au texte du fichier.
- * Les séparateurs (_, -, ., parenthèses, etc.) deviennent des espaces.
- */
 function normalize_tag_search_text(string $value): string
 {
     $value = preg_replace('/\.[^.]+$/u', '', $value);
@@ -199,67 +212,179 @@ function normalize_tag_search_text(string $value): string
     return trim($value);
 }
 
-/**
- * Retourne les tags existants dans tags.json, dédoublonnés.
- */
+function canonical_tag_key(string $tag): string
+{
+    return normalize_tag_search_text($tag);
+}
+
 function get_existing_tags(array $videos = []): array
 {
+    $registry = load_tag_registry();
+    $all = array_keys($registry);
+
+    // Compatibilité : si le registre est vide/ancien, les tags persistés
+    // restent une source de connaissance.
     $stored = load_tags_store();
-    $all = [];
     foreach ($stored as $tags) {
-        if (!is_array($tags)) continue;
-        foreach ($tags as $tag) {
-            if (is_string($tag) && trim($tag) !== '') $all[] = $tag;
-        }
+        if (is_array($tags)) $all = array_merge($all, $tags);
     }
+
     foreach ($videos as $video) {
-        foreach (($video['tags'] ?? []) as $tag) {
-            if (is_string($tag) && trim($tag) !== '') $all[] = $tag;
-        }
+        $raw = extract_tags($video['filename'] ?? '');
+        $all = array_merge($all, $raw);
     }
+
     $all = normalize_tag_list($all);
     usort($all, fn($a, $b) => strcasecmp($a, $b));
     return $all;
 }
 
 /**
- * Trouve les tags existants réellement présents dans le nom de fichier.
- * La comparaison se fait sur des mots complets afin d'éviter les faux positifs
- * (ex. "art" ne correspond pas à "party").
+ * Retourne true si un tag connu est présent comme mot/séquence de mots
+ * dans un tag inscrit entre parenthèses.
+ *
+ * Exemple :
+ *   "Maurice Paul Jacque" + "Paul" => true
+ *   "Paul Jacque Maurice" + "Paul" => true
+ *   "Pauline" + "Paul" => false
  */
-function find_matching_existing_tags(string $filename, array $existingTags): array
+function tag_occurs_inside(string $containerTag, string $knownTag): bool
 {
-    $haystack = normalize_tag_search_text($filename);
-    if ($haystack === '') return [];
+    $container = canonical_tag_key($containerTag);
+    $known = canonical_tag_key($knownTag);
 
-    $matches = [];
-    foreach ($existingTags as $tag) {
-        $needle = normalize_tag_search_text($tag);
-        if ($needle === '') continue;
-        $pattern = '/(?:^| )' . preg_quote($needle, '/') . '(?: |$)/u';
-        if (preg_match($pattern, $haystack)) {
-            $matches[] = $tag;
-        }
-    }
-    return normalize_tag_list($matches);
+    if ($container === '' || $known === '') return false;
+    if ($container === $known) return false;
+
+    return preg_match(
+        '/(?:^| )' . preg_quote($known, '/') . '(?: |$)/u',
+        $container
+    ) === 1;
 }
 
 /**
- * Construit les suggestions pour les vidéos qui n'ont actuellement aucun tag
- * et qui n'ont pas déjà été ignorées/traitées.
+ * Retourne true si un tag connu apparaît comme mot/séquence de mots dans
+ * le titre/nom de fichier, sans dépendre des parenthèses.
+ *
+ * Exemple :
+ *   "The Paul Jacque Story" + "Paul" => true
+ *   "The Paul-Jacque Story" + "Paul Jacque" => true
+ *   "Pauline Story" + "Paul" => false
+ */
+function tag_occurs_in_title(string $title, string $knownTag): bool
+{
+    $titleKey = canonical_tag_key($title);
+    $knownKey = canonical_tag_key($knownTag);
+
+    if ($titleKey === '' || $knownKey === '') return false;
+
+    return preg_match(
+        '/(?:^| )' . preg_quote($knownKey, '/') . '(?: |$)/u',
+        $titleKey
+    ) === 1;
+}
+
+/**
+ * Construit les suggestions à partir des tags actuellement présents entre
+ * parenthèses dans les noms de fichiers.
+ *
+ * Le registre global fournit les tags connus. Une vidéo peut donc recevoir
+ * une suggestion même si elle possède déjà d'autres tags.
  */
 function get_tag_suggestions(array $videos): array
 {
-    $existingTags = get_existing_tags($videos);
+    // Avant toute recherche, on apprend tous les tags explicitement écrits
+    // entre parenthèses dans les fichiers actuellement présents.
+    $discovered = [];
+    foreach ($videos as $video) {
+        $discovered = array_merge($discovered, extract_tags($video['filename'] ?? ''));
+    }
+    register_tags($discovered);
+
+    $knownTags = array_keys(load_tag_registry());
+    $stored = load_tags_store();
     $decisions = load_tag_suggestions_store();
     $suggestions = [];
 
     foreach ($videos as $id => $video) {
-        if (!empty($video['tags'])) continue;
-        $decision = $decisions[$id] ?? null;
-        if (is_array($decision) && in_array(($decision['status'] ?? ''), ['ignored', 'accepted'], true)) continue;
+        $assigned = isset($stored[$id]) && is_array($stored[$id])
+            ? normalize_tag_list($stored[$id])
+            : normalize_tag_list(extract_tags($video['filename'] ?? ''));
 
-        $matches = find_matching_existing_tags($video['filename'] ?? '', $existingTags);
+        $assignedKeys = [];
+        foreach ($assigned as $tag) {
+            $assignedKeys[canonical_tag_key($tag)] = true;
+        }
+
+        $rawTags = extract_tags($video['filename'] ?? '');
+        $matches = [];
+        $matchKeys = [];
+
+        /*
+         * 1. Correspondances dans les tags entre parenthèses.
+         */
+        foreach ($rawTags as $rawTag) {
+            foreach ($knownTags as $knownTag) {
+                $knownKey = canonical_tag_key($knownTag);
+                if ($knownKey === '' || isset($assignedKeys[$knownKey])) continue;
+                if (!tag_occurs_inside($rawTag, $knownTag)) continue;
+
+                if (isset($matchKeys[$knownKey])) continue;
+
+                $decision = $decisions[$id] ?? null;
+                $decisionEntry = null;
+                if (is_array($decision)) {
+                    if (isset($decision['suggestions']) && is_array($decision['suggestions'])) {
+                        $decisionEntry = $decision['suggestions'][$knownKey] ?? null;
+                    } elseif (isset($decision['status'])) {
+                        $decisionEntry = null;
+                    }
+                }
+
+                if (is_array($decisionEntry) && in_array(($decisionEntry['status'] ?? ''), ['ignored', 'accepted'], true)) {
+                    continue;
+                }
+
+                $matches[] = $knownTag;
+                $matchKeys[$knownKey] = true;
+            }
+        }
+
+        /*
+         * 2. Nouvelle détection : pour une vidéo qui n'a actuellement aucun
+         * tag attribué, recherche aussi les tags connus directement dans son
+         * titre/nom de fichier, même s'ils ne sont PAS entre parenthèses.
+         *
+         * Exemple :
+         *   Tag connu : Paul
+         *   Vidéo : "The Paul Jacque Story.mp4"
+         *   => suggestion : Paul
+         *
+         * Les tags déjà attribués ne sont jamais reproposés.
+         */
+        if (count($assigned) === 0) {
+            $titleForSearch = $video['filename'] ?? ($video['title'] ?? '');
+
+            foreach ($knownTags as $knownTag) {
+                $knownKey = canonical_tag_key($knownTag);
+                if ($knownKey === '' || isset($assignedKeys[$knownKey]) || isset($matchKeys[$knownKey])) continue;
+                if (!tag_occurs_in_title($titleForSearch, $knownTag)) continue;
+
+                $decision = $decisions[$id] ?? null;
+                $decisionEntry = null;
+                if (is_array($decision) && isset($decision['suggestions']) && is_array($decision['suggestions'])) {
+                    $decisionEntry = $decision['suggestions'][$knownKey] ?? null;
+                }
+
+                if (is_array($decisionEntry) && in_array(($decisionEntry['status'] ?? ''), ['ignored', 'accepted'], true)) {
+                    continue;
+                }
+
+                $matches[] = $knownTag;
+                $matchKeys[$knownKey] = true;
+            }
+        }
+
         if (!$matches) continue;
 
         $suggestions[] = [
@@ -268,7 +393,8 @@ function get_tag_suggestions(array $videos): array
             'filename' => $video['filename'],
             'mtime' => $video['mtime'],
             'date_h' => $video['date_h'],
-            'suggested_tags' => $matches,
+            'existing_tags' => $assigned,
+            'suggested_tags' => normalize_tag_list($matches),
         ];
     }
 
@@ -277,29 +403,44 @@ function get_tag_suggestions(array $videos): array
 }
 
 /**
- * Enregistre une décision utilisateur et, si elle est acceptée, les tags de la vidéo.
+ * Accepte ou refuse un ou plusieurs tags suggérés pour une vidéo.
+ * Les tags ajoutés deviennent immédiatement des tags réels de la vidéo.
  */
 function save_tag_decision(string $videoId, string $status, array $tags = []): array
 {
     $videos = get_index();
-    if (!isset($videos[$videoId])) {
-        throw new RuntimeException('Vidéo introuvable.');
-    }
-    if (!in_array($status, ['ignored', 'accepted'], true)) {
-        throw new RuntimeException('Décision invalide.');
-    }
+    if (!isset($videos[$videoId])) throw new RuntimeException('Vidéo introuvable.');
+    if (!in_array($status, ['ignored', 'accepted'], true)) throw new RuntimeException('Décision invalide.');
 
-    $decisions = load_tag_suggestions_store();
     $cleanTags = normalize_tag_list($tags);
-    $decisions[$videoId] = [
-        'status' => $status,
-        'tags' => $cleanTags,
-        'updated_at' => date('c'),
-    ];
+    $decisions = load_tag_suggestions_store();
+    if (!isset($decisions[$videoId]) || !is_array($decisions[$videoId])) {
+        $decisions[$videoId] = ['suggestions' => []];
+    }
+    if (!isset($decisions[$videoId]['suggestions']) || !is_array($decisions[$videoId]['suggestions'])) {
+        $decisions[$videoId]['suggestions'] = [];
+    }
 
-    if ($status === 'accepted') {
+    $now = date('c');
+    foreach ($cleanTags as $tag) {
+        $key = canonical_tag_key($tag);
+        if ($key === '') continue;
+        $decisions[$videoId]['suggestions'][$key] = [
+            'tag' => $tag,
+            'status' => $status,
+            'updated_at' => $now,
+        ];
+    }
+
+    if ($status === 'accepted' && $cleanTags) {
         $stored = load_tags_store();
-        $stored[$videoId] = $cleanTags;
+        $current = isset($stored[$videoId]) && is_array($stored[$videoId])
+            ? $stored[$videoId]
+            : extract_tags($videos[$videoId]['filename'] ?? '');
+
+        $stored[$videoId] = normalize_tag_list(array_merge($current, $cleanTags));
+        register_tags($cleanTags);
+
         if (!save_json_store(TAGS_FILE, $stored)) {
             throw new RuntimeException('Impossible d’enregistrer les tags.');
         }
@@ -309,12 +450,71 @@ function save_tag_decision(string $videoId, string $status, array $tags = []): a
         throw new RuntimeException('Impossible d’enregistrer la décision.');
     }
 
-    // Les tags font partie de l'index exposé par l'API : invalide le cache
-    // immédiatement pour que la nouvelle décision soit visible sans attendre.
     $indexCache = CACHE_DIR . '/index.json';
     if (is_file($indexCache)) @unlink($indexCache);
 
     return ['status' => $status, 'tags' => $cleanTags];
+}
+
+/**
+ * Synchronise tags.json avec les vidéos présentes.
+ *
+ * - Les liens vidéo -> tags sont supprimés lorsque la vidéo disparaît.
+ * - Le registre global tag_registry.json n'est jamais nettoyé.
+ * - Une vidéo déjà connue conserve ses tags historiques.
+ * - Une nouvelle vidéo reçoit les tags explicites de son nom.
+ */
+function sync_video_tags(array $videos): array
+{
+    $stored = load_tags_store();
+    $next = [];
+    $discovered = [];
+
+    foreach ($videos as $id => $video) {
+        $rawTags = extract_tags($video['filename'] ?? '');
+        $discovered = array_merge($discovered, $rawTags);
+
+        if (isset($stored[$id]) && is_array($stored[$id])) {
+            // Aucun tag historique n'est supprimé ou remplacé automatiquement.
+            $next[$id] = normalize_tag_list($stored[$id]);
+        } else {
+            // Première apparition : les tags écrits dans le nom deviennent
+            // les tags de la vidéo.
+            $next[$id] = normalize_tag_list($rawTags);
+        }
+    }
+
+    // Le registre apprend de tous les tags explicitement présents dans les
+    // noms actuels et des tags historiques encore conservés.
+    foreach ($stored as $tags) {
+        if (is_array($tags)) $discovered = array_merge($discovered, $tags);
+    }
+    foreach ($next as $tags) {
+        if (is_array($tags)) $discovered = array_merge($discovered, $tags);
+    }
+    register_tags($discovered);
+
+    // Nettoyage uniquement des liens liés aux vidéos disparues.
+    // Le registre global des tags n'est jamais nettoyé.
+    if ($next !== $stored) {
+        save_json_store(TAGS_FILE, $next);
+    }
+
+    // Les décisions vidéo -> tag peuvent elles aussi être nettoyées lorsque
+    // la vidéo disparaît. Une vidéo supprimée puis réimportée pourra donc
+    // recevoir à nouveau une suggestion.
+    $decisions = load_tag_suggestions_store();
+    $cleanDecisions = [];
+    foreach ($decisions as $videoId => $decision) {
+        if (isset($videos[$videoId])) {
+            $cleanDecisions[$videoId] = $decision;
+        }
+    }
+    if ($cleanDecisions !== $decisions) {
+        save_json_store(TAG_SUGGESTIONS_FILE, $cleanDecisions);
+    }
+
+    return $next;
 }
 
 function video_file_path(array $video): ?string
@@ -397,8 +597,8 @@ function find_video_by_id(string $id): ?array
  * Extrait les tags écrits entre parenthèses dans le nom du fichier.
  *
  * Exemple :
- * () (StudioTitle) - The Scene Title - (Vanessa Alessia) - (Michael Fly) - ()
- * => ["StudioTitle", "Vanessa Alessia", "Michael Fly"]
+ * () (Quartz) - The Amber Sequence - (Lumen Vale) - (Orchid) - ()
+ * => ["Quartz", "Lumen Vale", "Orchid"]
  *
  * Les parenthèses vides sont ignorées et les doublons sont supprimés
  * (insensible à la casse) en conservant la première écriture rencontrée.
